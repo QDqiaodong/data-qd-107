@@ -1,0 +1,5 @@
+version_id,customer,valid_from,valid_to,tier
+CX,X,2026-01-01,2026-04-01,basic
+CY,Y,2026-01-01,2026-04-01,basic
+CL,L,2026-01-01,2026-02-01,basic
+CN,N,2026-03-01,2026-04-01,basic

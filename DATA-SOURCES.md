@@ -8,5 +8,8 @@ Python 标准库由其自身许可约束，本仓库不重新授权 Python。
 - `fixtures/`：基线（v1）两文件演示数据。
 - `fixtures_inherited/`：集团继承（v2）四文件演示数据，客户 S/D1/D2/H/U、
   关系 e1-e4、合同 K1-K4、工单 T1-T6 均为本任务原创的合成标识。
+- `fixtures_compare/`：两期归因演示数据，客户 X/Y/L/N、合同 CX/CY/CL/CN、
+  工单 A1-A4 与 B1-B5 均为本任务原创的合成标识，金额与日期不对应任何
+  真实业务。
 仓库不提交任何运行数据库（`*.sqlite*` 已在 .gitignore 忽略）、真实客户资料
 或凭据。

@@ -21,6 +21,12 @@ uncovered 为 2 笔/12000 分。2月1日恰归新合同，C2在1月20日已过�
 
 两种模式都只使用 Python 标准库和 SQLite。
 
+3. **两期客户组合成本归因（compare，只读分析报告）**：独立入口
+   `contract_warehouse.compare`，只读消费上述任一模式已建好的事实层，
+   把共同支持客户的平均工单成本差额精确分解为成本变化项与组合变化项，
+   区分“同一批客户服务变贵”与“高成本客户占比上升”，输出单个确定性
+   JSON 报告。不修改旧模式、不重新匹配合同。
+
 ## 安装与运行
 
 要求 Python 3.11 或更高；先确认 `python3 --version`。以下命令在仓库根目录执行：
@@ -34,6 +40,12 @@ python3 -m venv .venv
 # 集团继承模式（四文件）
 .venv/bin/python -m contract_warehouse.inherited \
   --source fixtures_inherited --database run/inherited.sqlite
+# 两期归因报告（只读分析，任一模式的库）
+.venv/bin/python -m contract_warehouse.cli --source fixtures_compare --database run/compare.sqlite
+.venv/bin/python -m contract_warehouse.compare --database run/compare.sqlite \
+  --a-start 2026-01-01 --a-end 2026-02-01 \
+  --b-start 2026-03-01 --b-end 2026-04-01 \
+  --output run/compare-report.json
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
@@ -46,6 +58,14 @@ v2 演示（`fixtures_inherited/`，全部为合成数据）：S 的上级 1 月
 K1/深度1、K3/深度0、K2/深度2、K2/深度2、K4/深度1、uncovered；
 basic 3 笔 800 分、premium 2 笔 700 分、uncovered 1 笔 600 分，
 按持有人 H 归集 2 笔 700 分，合计 6 笔 2100 分。
+
+归因演示（`fixtures_compare/`，全部为合成数据）：A 期（1 月）共同客户
+X 两单各 100 分、Y 一单 300 分，A 独有 L 一单 900 分；B 期（3 月）X 一单
+200 分、Y 两单各 400 分，B 独有 N 两单各 50 分，全部 basic。共同支持两期
+均值为 500/3 与 1000/3，差额 500/3 精确拆成成本变化项 100/1 与组合变化项
+200/3（X 两项贡献 50/1 与 −50/1，Y 为 50/1 与 350/3）；全体均值反而从
+350/1 降到 220/1，说明共同支持差额不能冒称全体差额。报告契约见
+docs/contract.md 的 compare 章节。
 
 运行依赖与测试仅使用标准库；首次安装构建工具通常需要联网。每个仓库有独立
  `.venv`。安装的是源码的构建副本；编辑源码后须再次执行安装命令。
@@ -80,10 +100,12 @@ CLI 参数错误或无效数据返回非零；失败原因打印到 stderr。
   - `ingest.py`/`build.py`/`cli.py`：基线两文件模式（未改动）。
   - `hierarchy.py`：四文件解析、时序森林校验、区间桥表构建与就近继承选择。
   - `inherited.py`：v2 建仓入口与 CLI。
+  - `compare.py`：两期客户组合成本归因只读分析与报告 CLI。
 - `fixtures/`：基线模式 MIT 许可的合成输入。
 - `fixtures_inherited/`：v2 模式的合成输入；来源声明见 DATA-SOURCES.md。
-- `docs/contract.md`：字段和口径、边界及失败约定（含 v2 章节）。
-- `tests/`：业务结果、边界与失败测试（两套模式）。
+- `fixtures_compare/`：两期归因演示的合成输入（X/Y 共同客户 + L/N 独有客户）。
+- `docs/contract.md`：字段和口径、边界及失败约定（含 v2 与 compare 章节）。
+- `tests/`：业务结果、边界与失败测试（两套建仓模式 + 归因报告）。
 - `requirements*.lock`、`pyproject.toml`：环境和构建声明。
 
 本基线不承诺实时同步或生产调度。仅验证本机环境的事实见交付记录；本仓库不
