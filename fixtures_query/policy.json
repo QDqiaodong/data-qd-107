@@ -1,0 +1,20 @@
+{
+  "schema": "contract_query_policy_v1",
+  "principals": {
+    "tech-h": {
+      "contract_holders": ["H"]
+    },
+    "tech-s": {
+      "contract_holders": ["S"]
+    },
+    "tech-d1d2": {
+      "contract_holders": ["D1", "D2"]
+    },
+    "tech-u": {
+      "contract_holders": ["U"]
+    },
+    "tech-none": {
+      "contract_holders": []
+    }
+  }
+}

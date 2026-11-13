@@ -11,5 +11,8 @@ Python 标准库由其自身许可约束，本仓库不重新授权 Python。
 - `fixtures_compare/`：两期归因演示数据，客户 X/Y/L/N、合同 CX/CY/CL/CN、
   工单 A1-A4 与 B1-B5 均为本任务原创的合成标识，金额与日期不对应任何
   真实业务。
+- `fixtures_query/`：受限查询网关的合成主体策略 `policy.json`，主体
+  tech-h/tech-s/tech-d1d2/tech-u/tech-none 与持有人白名单均为本任务原创
+  的合成标识，不对应真实人员或权限数据。
 仓库不提交任何运行数据库（`*.sqlite*` 已在 .gitignore 忽略）、真实客户资料
 或凭据。

@@ -36,6 +36,16 @@ uncovered 为 2 笔/12000 分。2月1日恰归新合同，C2在1月20日已过�
    下载、发布中断等恢复，不重复创建业务导出、不混用两个快照、不发布半成品。
    协议、状态机、来源与恢复边界见 `docs/capture.md`。
 
+5. **受限查询网关（query，v2 库的按主体受限 SQL 出口）**：
+   `contract_warehouse.query` 面向外包维修人员的自助工单查询。可信调用方
+   指定主体、严格 JSON 策略（主体 → contract_holder 白名单）与正整数
+   步数/行数预算；SQL 文本不可信（身份认证不在范围内）。只暴露
+   `tickets` 五列，逐行限于已持久化 holder 在白名单中的工单（NULL 不授权、
+   不按服务客户或层级扩权）；不可信 SQL 在仅含授权行的内存沙箱中执行，
+   由解析器驱动的授权回调（非关键字过滤）拦截底表、模式表、ATTACH/
+   PRAGMA/写操作/扩展，超预算或拒绝均不输出部分结果，源库只读不变。
+   契约见 `docs/contract.md` 的 query 章节。
+
 ## 安装与运行
 
 要求 Python 3.11 或更高；先确认 `python3 --version`。以下命令在仓库根目录执行：
@@ -55,6 +65,11 @@ python3 -m venv .venv
   --a-start 2026-01-01 --a-end 2026-02-01 \
   --b-start 2026-03-01 --b-end 2026-04-01 \
   --output run/compare-report.json
+# 受限查询网关（v2 库；主体 tech-h 只见持有人 H 的 T3/T4，合计 700 分）
+.venv/bin/python -m contract_warehouse.query --database run/inherited.sqlite \
+  --policy fixtures_query/policy.json --principal tech-h \
+  --max-steps 1000000 --max-rows 1000 \
+  --sql "SELECT contract_holder, count(*), sum(cost_cents) FROM tickets GROUP BY 1"
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
@@ -110,15 +125,18 @@ CLI 参数错误或无效数据返回非零；失败原因打印到 stderr。
   - `hierarchy.py`：四文件解析、时序森林校验、区间桥表构建与就近继承选择。
   - `inherited.py`：v2 建仓入口与 CLI。
   - `compare.py`：两期客户组合成本归因只读分析与报告 CLI。
+  - `query.py`：v2 库的按主体受限 SQL 查询网关（API + CLI）。
   - `capture/`：异步导出任务采集客户端（`engine.py` 工作流、`protocol.py`
     严格 loopback 协议、`state.py` 单导出 SQLite 状态、`portal.py` 原创演示
     门户协议夹具、`cli.py`/`__main__.py` 命令行）。
 - `fixtures/`：基线模式 MIT 许可的合成输入。
 - `fixtures_inherited/`：v2 模式的合成输入；来源声明见 DATA-SOURCES.md。
 - `fixtures_compare/`：两期归因演示的合成输入（X/Y 共同客户 + L/N 独有客户）。
-- `docs/contract.md`：字段和口径、边界及失败约定（含 v2 与 compare 章节）。
+- `fixtures_query/`：受限查询网关的合成主体策略（`policy.json`）。
+- `docs/contract.md`：字段和口径、边界及失败约定（含 v2、compare 与 query 章节）。
 - `docs/capture.md`：采集客户端的协议、状态机、来源审计与恢复边界说明。
-- `tests/`：业务结果、边界与失败测试（两套建仓模式 + 归因报告 + 采集客户端）。
+- `tests/`：业务结果、边界与失败测试（两套建仓模式 + 归因报告 + 采集客户端
+  + 受限查询网关）。
 - `requirements*.lock`、`pyproject.toml`：环境和构建声明。
 
 本基线不承诺实时同步或生产调度。仅验证本机环境的事实见交付记录；本仓库不

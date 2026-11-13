@@ -222,3 +222,125 @@ stdout 摘要；摘要打印失败不回滚已替换的报告。本报告为单�
 该分解是描述性的：它刻画共同支持客户上平均成本变化的构成，不代表合同
 等级或组织调整对成本的因果效应；共同支持未覆盖全体时，共同支持差额也不
 等于全体均值差，报告将两者分列，读者不得以前者冒充后者。
+
+## 受限查询网关（query，v2 库的按主体受限 SQL 出口）
+
+`contract_warehouse.query` 让外包维修人员对着已有 v2 库自助执行 SQL 查询
+工单，同时保证任何合同方之外的行都不可读。它只新增独立入口，不修改
+既有任何模块的接口与行为。
+
+### 信任模型
+
+- **可信调用方**（网关的嵌入系统）指定四样输入：主体 `principal`、严格
+  JSON 策略（主体 → `contract_holder` 白名单）、正整数指令步数上限
+  `max_steps`、正整数结果行数上限 `max_rows`。
+- **SQL 文本不可信**：可以是任意单条语句，网关不假设其善意。
+- **身份认证不在本模块范围内**：调用方负责先认证操作者，再以对应
+  `principal` 调用；网关只保证“以某主体身份执行的 SQL 只能看到该主体
+  白名单授权的行”。
+
+### 输入与校验顺序
+
+- `--database`：已存在的 v2 库。以 `mode=ro` 只读打开（缺失文件不会被
+  创建），在同一个读取事务内校验 `wh_meta` 标识
+  （`inherited_contracts_v2` / `2`）与 `wh_meta`、`dwd_ticket` 的精确
+  列集合；非 SQLite 文件、v1 库、标识或结构不符均整次拒绝
+  （`WarehouseError`），源库绝不写入。
+- `--policy`：严格 JSON 策略。顶层恰好含 `schema`（必须等于
+  `contract_query_policy_v1`）与 `principals` 两键；`principals` 为对象，
+  键是 1..128 字符的主体名（至多 1024 个），值恰好含 `contract_holders`
+  数组（每主体至多 1024 项；每项为 1..128 字符字符串，不得重复）。
+  重复 JSON 键、`NaN`/`Infinity`、缺键/多键、类型错误、过深嵌套、文本
+  超过 1 MiB 均拒绝（`PolicyError`）。标识沿用原文精确语义：不改大小写、
+  不去空白。
+- `--principal`：必须存在于策略中，否则 `UnknownPrincipalError`。
+- `--max-steps` / `--max-rows`：正整数；布尔、浮点、字符串、非正数均
+  拒绝（`QueryError`）。
+- `--sql` / `--sql-file`：互斥且必给其一；`--sql-file -` 读标准输入。
+  SQL 文本非空、不超过 1,000,000 字符。
+- 请求校验先于任何数据库访问：策略类型 → 预算 → 主体 → SQL 形状 →
+  数据库，错误按此顺序确定性地产出。
+
+### 暴露关系与逐行授权规则
+
+只暴露一个关系：`tickets(ticket_id, customer, opened, cost_cents,
+contract_holder)`。其行是 `dwd_ticket` 中**已持久化**的
+`contract_holder` 落在该主体白名单内的事实行（`IN` 匹配，因此
+`contract_holder` 为 NULL 的未覆盖工单永不授权）；不按服务客户
+`customer` 扩权，不沿当前层级桥表扩权，也不重新计算继承归属。空白名单
+得到空 `tickets` 关系，查询照常执行并返回空集。授权行在同一读取事务内
+按 `ticket_id` 排序后复制出库，提取时逐行校验五列的存储类型。
+
+### 允许的 SQL
+
+单条 `SELECT`：可含 `WITH`/`WITH RECURSIVE`、子查询、
+`UNION`/`INTERSECT`/`EXCEPT`、连接、聚合与窗口函数、`EXPLAIN`；只能读
+`tickets` 的五列（`ROWID` 不可读）。函数调用限于契约内白名单：聚合
+（`avg`/`count`/`sum`/`total`/`min`/`max`/`group_concat`/`string_agg`）、
+窗口（`row_number`/`rank`/`dense_rank`/`ntile`/`lag`/`lead`/`first_value`/
+`last_value`/`nth_value`）、纯标量与日期时间助手（`abs`/`coalesce`/
+`ifnull`/`iif`/`nullif`/`length`/`lower`/`upper`/`substr`/`trim`/`ltrim`/
+`rtrim`/`replace`/`instr`/`hex`/`quote`/`round`/`typeof`/`unicode`/`char`/
+`sign`/`concat`/`concat_ws`/`like`/`glob`/`likelihood`/`likely`/`unlikely`/
+`date`/`time`/`datetime`/`julianday`/`strftime`/`unixepoch`/`timediff`）
+及数学函数（`floor`/`sqrt`/`power`/`log` 等，取决于 SQLite 构建是否
+启用）。`random`、`randomblob`、`zeroblob`、`printf`/`format`、
+`sqlite_version`、`load_extension` 等一律拒绝；白名单内但当前构建未
+注册的函数（如 `string_agg`）按“无此函数”拒绝该条查询。
+
+### 禁止项与执行机制（不是关键字过滤）
+
+禁止：访问底表/ODS 原文/审计/桥表（它们在执行环境中物理不存在）、模式
+表（`sqlite_master`、`sqlite_schema`、`pragma_*` 表值函数）、其他文件
+（`ATTACH`/`DETACH`、`VACUUM INTO`）、写操作与 DDL、`PRAGMA`、事务与
+保存点、扩展加载、多语句。执行机制层层独立、不依赖字符串匹配：
+
+1. 授权行被复制进一个仅含 `tickets` 表的**内存沙箱**，不可信 SQL 只在
+   沙箱上执行；源库连接在此之前已关闭。
+2. SQLite 授权回调（由 SQLite 解析器驱动、默认拒绝）只放行
+   `SELECT`/递归求值、五列读取与函数白名单；`SQLITE_LIMIT_ATTACHED=0`
+   与 `PRAGMA query_only=ON` 作为纵深防御（`VACUUM INTO` 的内部附加
+   同样被这两层挡下，不会写出任何文件）。
+3. SQLite 资源限制：单值 64 MiB、结果列 256、表达式深度 1000、复合
+   查询项 500、SQL 文本 1,000,000 字符。
+4. 进度回调实施步数预算：每 `min(1000, max_steps)` 条 VM 指令设一个
+   检查点，累计超过预算即中断（超调小于 1000 条）；递归 CTE 耗尽与
+   笛卡尔积爆炸都被此终止，不产生部分结果。
+5. 取数时实施行数预算：最终结果行数超过 `max_rows` 即整次失败。
+
+字符串字面量或引号标识符里的 `ATTACH`、`PRAGMA`、`DROP` 等字样只是
+数据，不影响合法查询——拦截发生在解析器/执行层，而非关键字层。
+
+### 输出与失败约定
+
+成功时 stdout 输出单个 JSON（`sort_keys`）：
+`{"columns": [...], "principal": "...", "row_count": N, "rows": [[...]]}`；
+结果值只能是 NULL/整数/有限浮点/文本，出现 BLOB 或非有限浮点整次拒绝
+（`ResultError`）。任何拒绝或超预算：退出码 2、原因到 stderr、stdout
+无任何部分结果（结果先完整物化并通过值校验才输出）。每次调用都新建
+沙箱，被拒绝或中断的查询不影响后续合法查询；源库只读且字节不变，不
+产生 `-wal`/`-shm` 等伴生文件；沙箱为纯内存，不留临时文件。错误分类
+（均为 `QueryError` 子类）：`PolicyError`、`UnknownPrincipalError`、
+`WarehouseError`、`UnsafeSqlError`、`BudgetExceededError`、`ResultError`。
+
+API：`query.Policy.from_json(text)` 解析策略；
+`query.run_query(database, policy, principal, sql, max_steps, max_rows)`
+返回 `QueryResult(columns, rows)`（完全物化、JSON 安全）。CLI：
+
+```sh
+python3 -m contract_warehouse.query --database run/inherited.sqlite \
+  --policy fixtures_query/policy.json --principal tech-h \
+  --max-steps 1000000 --max-rows 1000 \
+  --sql "SELECT contract_holder, count(*), sum(cost_cents) FROM tickets GROUP BY 1"
+```
+
+非目标：身份认证与传输安全、按查询配额的计费、定时/缓存侧信道防护
+（预算只约束单次查询的粗粒度资源）、查询审计日志。
+
+### 合成策略夹具
+
+`fixtures_query/policy.json`（全合成）：`tech-h`→`[H]`（仅见 T3/T4，
+合计 700 分）、`tech-s`→`[S]`（仅见 T2/200 分，证明不按服务客户扩权）、
+`tech-d1d2`→`[D1, D2]`（T1/T5）、`tech-u`→`[U]`（空集：U 无合同；
+T6 未覆盖、持有人为 NULL，对一切主体不可见）、`tech-none`→`[]`
+（空授权返回空集）。
