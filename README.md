@@ -27,6 +27,15 @@ uncovered 为 2 笔/12000 分。2月1日恰归新合同，C2在1月20日已过�
    区分“同一批客户服务变贵”与“高成本客户占比上升”，输出单个确定性
    JSON 报告。不修改旧模式、不重新匹配合同。
 
+4. **异步导出任务采集客户端（capture，独立接续工作流）**：
+   `contract_warehouse.capture` 对接原创 loopback 模拟门户（协议夹具，非生产
+   服务、无需账号），先创建一次异步导出任务，再以同一请求身份跨进程接续，
+   从同一冻结快照取得客户、关系、合同、工单四份 CSV，经完整 v2 业务校验后
+   原子发布为可直接交给 `inherited.build` 的五文件输入目录（四份 CSV +
+   `capture.json`）。一个 SQLite state 只管一次导出，支持创建回执丢失、部分
+   下载、发布中断等恢复，不重复创建业务导出、不混用两个快照、不发布半成品。
+   协议、状态机、来源与恢复边界见 `docs/capture.md`。
+
 ## 安装与运行
 
 要求 Python 3.11 或更高；先确认 `python3 --version`。以下命令在仓库根目录执行：
@@ -101,11 +110,15 @@ CLI 参数错误或无效数据返回非零；失败原因打印到 stderr。
   - `hierarchy.py`：四文件解析、时序森林校验、区间桥表构建与就近继承选择。
   - `inherited.py`：v2 建仓入口与 CLI。
   - `compare.py`：两期客户组合成本归因只读分析与报告 CLI。
+  - `capture/`：异步导出任务采集客户端（`engine.py` 工作流、`protocol.py`
+    严格 loopback 协议、`state.py` 单导出 SQLite 状态、`portal.py` 原创演示
+    门户协议夹具、`cli.py`/`__main__.py` 命令行）。
 - `fixtures/`：基线模式 MIT 许可的合成输入。
 - `fixtures_inherited/`：v2 模式的合成输入；来源声明见 DATA-SOURCES.md。
 - `fixtures_compare/`：两期归因演示的合成输入（X/Y 共同客户 + L/N 独有客户）。
 - `docs/contract.md`：字段和口径、边界及失败约定（含 v2 与 compare 章节）。
-- `tests/`：业务结果、边界与失败测试（两套建仓模式 + 归因报告）。
+- `docs/capture.md`：采集客户端的协议、状态机、来源审计与恢复边界说明。
+- `tests/`：业务结果、边界与失败测试（两套建仓模式 + 归因报告 + 采集客户端）。
 - `requirements*.lock`、`pyproject.toml`：环境和构建声明。
 
 本基线不承诺实时同步或生产调度。仅验证本机环境的事实见交付记录；本仓库不
