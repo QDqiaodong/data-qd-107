@@ -1,0 +1,5 @@
+version_id,customer,valid_from,valid_to,tier
+K1,D1,2026-01-01,2026-01-20,basic
+K2,H,2026-01-01,,premium
+K3,S,2026-01-15,2026-01-16,basic
+K4,D2,2026-02-10,,basic

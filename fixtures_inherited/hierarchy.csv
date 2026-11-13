@@ -1,0 +1,5 @@
+edge_id,customer,parent,valid_from,valid_to
+e1,S,D1,2026-01-01,2026-02-01
+e2,S,D2,2026-02-01,
+e3,D1,H,2026-01-01,
+e4,D2,H,2026-01-01,
